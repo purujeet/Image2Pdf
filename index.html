@@ -3,13 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image to PDF Converter </title>
+    <title>Image to PDF Converter</title>
     <!-- Materialize CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
     <!-- Material Icons -->
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <!-- Cropper.js CSS -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.css">
     <style>
         :root {
             --primary-bg: linear-gradient(to bottom, #4CAF50, #81C784);
@@ -47,6 +45,8 @@
         }
         main {
             flex: 1 0 auto;
+            overflow-y: auto;
+            padding-bottom: 100px; /* Space for fixed footer */
         }
         .container {
             max-width: 600px;
@@ -135,6 +135,11 @@
             background-color: var(--footer-bg);
             padding: 10px 0;
             color: var(--primary-text);
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            z-index: 1000;
+            margin-top: 40px; /* Space above footer */
         }
         .page-footer a {
             color: var(--link-color);
@@ -144,13 +149,11 @@
         .page-footer a:hover {
             color: var(--btn-hover);
         }
-        /* Cropper Modal */
-        .modal {
-            max-width: 80%;
-            max-height: 80vh;
-        }
-        .cropper-container {
-            max-height: 400px;
+        #sizeEstimate {
+            font-size: 14px;
+            margin-top: 5px;
+            color: var(--primary-text);
+            opacity: 0.7;
         }
         @media (max-width: 600px) {
             .container {
@@ -162,8 +165,8 @@
             .drop-zone {
                 padding: 20px;
             }
-            .modal {
-                max-width: 95%;
+            .page-footer {
+                padding: 5px 0;
             }
         }
     </style>
@@ -173,8 +176,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/js/materialize.min.js"></script>
     <!-- Sortable.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
-    <!-- Cropper.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.2/cropper.min.js"></script>
 </head>
 <body>
     <!-- Navigation Bar -->
@@ -220,6 +221,8 @@
                         <p class="range-field">
                             <input type="range" id="quality" min="0.1" max="1" value="0.8" step="0.1">
                             <span id="qualityValue">80%</span>
+                            <br>
+                            <span id="sizeEstimate">Estimated size: 0 MB</span>
                         </p>
                     </div>
                 </div>
@@ -227,28 +230,14 @@
                     Convert to PDF
                     <i class="material-icons right">send</i>
                 </button>
-                <p>Click an image to crop, drag to reorder</p>
+                <p>Drag images to reorder</p>
                 <div id="preview"></div>
                 <div id="status"></div>
             </div>
         </div>
     </main>
 
-    <!-- Cropper Modal -->
-    <div id="cropModal" class="modal">
-        <div class="modal-content">
-            <h4>Crop Image</h4>
-            <img id="cropImage" style="max-width: 100%;">
-            <div class="modal-footer">
-                <button class="btn waves-effect waves-light" onclick="saveCroppedImage()">Save
-                    <i class="material-icons right">check</i>
-                </button>
-                <button class="btn-flat" onclick="M.Modal.getInstance(document.getElementById('cropModal')).close()">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Footer with Links -->
+    <!-- Footer -->
     <footer class="page-footer">
         <div class="container">
             <div class="row">
@@ -270,6 +259,7 @@
             const qualityValue = document.getElementById('qualityValue');
             qualitySlider.addEventListener('input', () => {
                 qualityValue.textContent = (qualitySlider.value * 100).toFixed(0) + '%';
+                updateSizeEstimate();
             });
         });
 
@@ -338,6 +328,7 @@
             }
             filesArray = [...filesArray, ...files.filter(file => file.type.startsWith('image/'))];
             updatePreview();
+            updateSizeEstimate();
             imageInput.value = '';
         }
 
@@ -348,7 +339,6 @@
                 const img = document.createElement('img');
                 img.src = URL.createObjectURL(file);
                 img.dataset.index = index;
-                img.addEventListener('click', () => openCropModal(file, index));
                 preview.appendChild(img);
             });
             new Sortable(preview, {
@@ -360,30 +350,12 @@
             });
         }
 
-        // Cropper
-        let cropper;
-        let currentFileIndex;
-        function openCropModal(file, index) {
-            currentFileIndex = index;
-            const cropImage = document.getElementById('cropImage');
-            cropImage.src = URL.createObjectURL(file);
-            const modal = M.Modal.getInstance(document.getElementById('cropModal'));
-            modal.open();
-            if (cropper) cropper.destroy();
-            cropper = new Cropper(cropImage, {
-                aspectRatio: NaN,
-                viewMode: 1,
-                autoCropArea: 0.8
-            });
-        }
-
-        async function saveCroppedImage() {
-            const canvas = cropper.getCroppedCanvas();
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-            filesArray[currentFileIndex] = new File([blob], `cropped_${currentFileIndex}.jpg`, { type: 'image/jpeg' });
-            updatePreview();
-            M.Modal.getInstance(document.getElementById('cropModal')).close();
-            cropper.destroy();
+        function updateSizeEstimate() {
+            const quality = parseFloat(document.getElementById('quality').value);
+            const totalSize = filesArray.reduce((sum, file) => sum + file.size, 0);
+            // Estimate: 50% base compression + quality factor (0.1–1.0)
+            const estimatedSize = (totalSize * 0.5 * quality) / (1024 * 1024); // Convert to MB
+            document.getElementById('sizeEstimate').textContent = `Estimated size: ${estimatedSize.toFixed(2)} MB`;
         }
 
         // PDF Conversion
@@ -394,6 +366,15 @@
             const pageSize = document.getElementById('pageSize').value;
             const quality = parseFloat(document.getElementById('quality').value);
             const doc = new jsPDF({ unit: 'mm', format: pageSize });
+
+            // Generate timestamp for filename
+            const now = new Date();
+            const timestamp = now.getFullYear() +
+                ('0' + (now.getMonth() + 1)).slice(-2) +
+                ('0' + now.getDate()).slice(-2) + '_' +
+                ('0' + now.getHours()).slice(-2) +
+                ('0' + now.getMinutes()).slice(-2) +
+                ('0' + now.getSeconds()).slice(-2);
 
             for (let i = 0; i < filesArray.length; i++) {
                 const file = filesArray[i];
@@ -424,7 +405,7 @@
                     return;
                 }
             }
-            doc.save('converted.pdf');
+            doc.save(`ImageToPDF_${timestamp}.pdf`);
             status.textContent = 'Conversion complete! PDF downloaded.';
             convertBtn.disabled = false;
         }
